@@ -1,0 +1,323 @@
+---
+title: " "
+output:
+   html_document:
+     css: style.css
+---
+
+
+
+```{r, include = FALSE}
+
+knitr::opts_chunk$set(fig.width = 7, fig.height = 7, collapse = TRUE, dpi = 300, warning = FALSE, message = FALSE, comment = " ")
+
+```
+
+
+<p align = "justify">
+<font size="4"> **Library** </font>
+</p>
+
+```{r}
+
+library(AICcmodavg)
+library(ape)
+library(caper)
+library(geiger)
+library(kableExtra)
+library(MuMIn)
+library(nlme)
+library(phytools)
+library(plotrix)
+library(shape)
+library(car)
+library(magick)
+
+```
+
+<p align = "justify">
+<font size="4"> **Session information** </font>
+</p>
+
+
+```{r, warning = FALSE, comment = " "}
+
+R.version
+sessionInfo()
+
+```
+
+```{r, include = FALSE}
+
+
+evo_bd <- read.csv("evo_body_size_mass2.csv", row.names = 1)
+evo_bd <- evo_bd[evo_bd$diet != "Herbivorous", ]
+evo_bd <- evo_bd[evo_bd$Family != "Sphenodontidae", ]
+tree <- read.nexus("time.tree.nex")
+str(evo_bd)
+
+
+
+## Scaled mass index for females
+
+par(mar = c(6, 6, 1, 1), mgp = c(4, 1, 0))
+plot(rawFem ~ female.SVL, data = evo_bd, ylab = "Female mass (g)", xlab = "Female length (mm)", las = 1)
+
+par(mar = c(5.1, 4.1, 4.1, 2.1), mgp = c(3, 1, 0))
+plot(log(rawFem) ~ log(female.SVL), data = evo_bd, ylab = "Female mass ln(g)", xlab = "Female length ln(mm)", las = 1)
+step1 <- lm(log(rawFem) ~ log(female.SVL), data = evo_bd)
+summary(step1)
+
+L0 <- mean(evo_bd$female.SVL)
+Mi <- evo_bd$rawFem
+Li <- evo_bd$female.SVL
+
+evo_bd$M_females <- Mi*(L0/Li)^3
+
+
+## Scaled mass index for hatchlings
+
+plot(rawHatc ~ hatchling.neonate.SVL, data = evo_bd, ylab = "Hatchling mass (g)", xlab = "Hatchling length (mm)", las = 1)
+
+plot(log(rawHatc) ~ log(hatchling.neonate.SVL), data = evo_bd, ylab = "Hatchling mass log(g)", xlab = "Hatchling length log(mm)", las = 1)
+step1h <- lm(log(rawHatc) ~ log(hatchling.neonate.SVL), data = evo_bd)
+summary(step1h)
+
+L0h <- mean(evo_bd$hatchling.neonate.SVL)
+Mih <- evo_bd$rawHatc
+Lih <- evo_bd$hatchling.neonate.SVL
+
+evo_bd$M_hatchlings <- Mih*(L0h/Lih)^2.8
+head(evo_bd)
+
+
+check <- name.check(tree, evo_bd)
+rm_phy <- check$tree_not_data
+rm_dat <- check$data_not_tree
+ctree <- drop.tip(tree, rm_phy)
+
+cdat <- subset(evo_bd, subset = evo_bd$Binomial %in% ctree$tip, select = names(evo_bd)[1:27])
+name.check(ctree, cdat)
+
+
+## Mean clutch size
+
+cdat$mclutch <- (cdat$smallest.mean.clutch.size + cdat$largest.mean.clutch.size) / 2
+
+
+## Reproductive output
+
+cdat$rep_out <- (cdat$mclutch * cdat$M_hatchlings)
+str(cdat)
+
+tapply(cdat$M_females, cdat$Family, length)
+
+
+
+```
+
+
+```{r, include = FALSE}
+
+
+## Lacertilia
+
+cdat$foraging.mode <- factor(cdat$foraging.mode, levels = c("widely foraging", "sit and wait", "mixed")) ## I am changing the order of the levels here so that the contrast of the coefficients can be made against the level "widely foraging".
+
+
+## Standardized mass, M.
+
+dat_full <- cdat
+
+check_full <- name.check(tree, dat_full)
+rm_phy_full <- check_full$tree_not_data
+rm_dat_full <- check_full$data_not_tree
+ctree_full <- drop.tip(tree, rm_phy_full)
+name.check(ctree_full, dat_full)
+
+
+## Number of individuals in each category (foraging mode)
+
+tapply(dat_full$M_females, dat_full$foraging.mode, length)
+
+## Mean scaled mass index per category
+
+tapply(dat_full$M_females, dat_full$foraging.mode, mean)
+
+## Mean reproductive output per category
+
+tapply(dat_full$rep_out, dat_full$foraging.mode, mean)
+
+
+full_mod <- gls(rep_out ~ M_females*foraging.mode, correlation = corBrownian(phy = ctree_full, form = ~Binomial), data = dat_full, method = "ML")
+summary(full_mod)
+
+
+full_mod1 <- gls(rep_out ~ M_females + foraging.mode, correlation = corBrownian(phy = ctree_full, form = ~Binomial), data = dat_full, method = "ML")
+summary(full_mod1)
+
+
+full_mod2 <- gls(rep_out ~ M_females*foraging.mode, correlation = corPagel(value = 0, phy = ctree_full, form = ~Binomial), data = dat_full, method = "ML")
+summary(full_mod2)
+
+full_mod3 <- gls(rep_out ~ M_females + foraging.mode, correlation = corPagel(value = 0, phy = ctree_full, form = ~Binomial), data = dat_full, method = "ML")
+summary(full_mod3)
+
+```
+
+
+
+<p align = "justify">
+<font size="4"> **Consider only sit-and-wait and widely-foraging lizards** </font>
+</p>
+
+<p align = "justify">
+<font size="4">Almost a year ago, my mentors and I submitted a paper to *Proceedings of the Royal Society B*. In this paper, we investigated the relationship between foraging behavior and reproducitve effort in lizards (see [here](https://royalsocietypublishing.org/doi/10.1098/rspb.2022.0180)). One of the most important comments I got from a reviwer was related to the scatter in the data. The reviwer stated that the variance of the data was very large, preventing us from making robust conclusions. In response to this concern, I would like to show here one way to deal with this issue: <br><br> As observed in figure 3a-b of the paper, the majority of the species are clustered at small sizes along the x-axis, while a few others are grouped at large sizes and seem to be "extreme cases". Some of the latter cases are "mixed-foraging" species that can behave either as a "widely-foraging" or "sit-and-wait" species. If I remove the "mixed" category and make the species behave randomly as "widely foragers" or "sit-and-wait forager", I could recalculate the significance of the interaction to determine whether the results hold or not. If I do so multiple time (>1000), I can calculate the proportion of time that "widely-foraging" species have greater reproductive output than "sit-and-wait" species, as indicated by the original results. Let's do it: </font>
+</p>
+
+
+```{r, eval = FALSE}
+
+## Considering only sit-and-wait and widely-foraging lizards
+
+
+set.seed(94)
+
+options(scipen = 999)
+
+active <- dat_full[dat_full$foraging.mode == "widely foraging",  ]
+ambush <- dat_full[dat_full$foraging.mode == "sit and wait",  ]
+mixed <- dat_full[dat_full$foraging.mode == "mixed",  ]
+
+savep <- rep(NA, 1000)
+savei <- rep(NA, 1000)
+
+for(i in 1:1000){
+    
+    randomizing <- sample(rep(c("widely foraging", "sit and wait"), each = length(mixed$foraging.mode)), size = length(mixed$foraging.mode))
+    mixed$foraging.mode <- randomizing
+    merg <- rbind(active, ambush, mixed)
+
+    ## model
+    mod <- gls(rep_out ~ M_females*foraging.mode, correlation = corPagel(value = 0, phy = ctree_full, form = ~Binomial), data = merg, method = "ML")
+
+    ## Confidence intervals
+
+    ## sit and wait
+
+    sw <- merg[merg$foraging.mode == "sit and wait", ]
+    check_sw <- name.check(tree, sw)
+    rm_phy_sw <- check_sw$tree_not_data
+    rm_dat_sw <- check_sw$data_not_tree
+    ctree_sw <- drop.tip(tree, rm_phy_sw)
+
+    SSX.sw <- sum(round((sw$M_females - mean(sw$M_females))^2), 2)
+    s2.sw <- var(sw$rep_out)
+    n.sw <- length(sw$rep_out)
+    x.sw <- seq(min(sw$M_females), max(sw$M_females), 0.5)
+    m.x.sw <- mean(round(sw$M_females, 1))
+    se.sw <- sqrt(s2.sw*((1/n.sw) + (((x.sw - m.x.sw)^2)/SSX.sw)))
+    is.sw <- qt(0.975, df = n.sw - 2)
+    ii.sw <- qt(0.025, df = n.sw - 2)
+    ic.s.sw <- se.sw*is.sw
+    ic.i.sw <- se.sw*ii.sw
+    upper.i.sw <- ((coef(mod)[1] + coef(mod)[3]) + (coef(mod)[2] + coef(mod)[4])*x.sw) + ic.s.sw
+    lower.i.sw <- ((coef(mod)[1] + coef(mod)[3]) + (coef(mod)[2] + coef(mod)[4])*x.sw) + ic.i.sw
+
+
+    ## widely foraging
+
+    wf <- merg[merg$foraging.mode == "widely foraging", ]
+    check_wf <- name.check(tree, wf)
+    rm_phy_wf <- check_wf$tree_not_data
+    rm_dat_wf <- check_wf$data_not_tree
+    ctree_wf <- drop.tip(tree, rm_phy_wf)
+
+    SSX.wf <- sum(round((wf$M_females - mean(wf$M_females))^2), 2)
+    s2.wf <- var(wf$rep_out)
+    n.wf <- length(wf$rep_out)
+    x.wf <- seq(min(wf$M_females), max(wf$M_females), 0.5)
+    m.x.wf <- mean(round(wf$M_females,1))
+    se.wf <- sqrt(s2.wf*((1/n.wf) + (((x.wf - m.x.wf)^2)/SSX.wf)))
+    is.wf <- qt(0.975, df = n.wf - 2)
+    ii.wf <- qt(0.025, df = n.wf - 2)
+    ic.s.wf <- se.wf*is.wf
+    ic.i.wf <- se.wf*ii.wf
+    upper.i <- (coef(mod)[1] + coef(mod)[2]*x.wf) + ic.s.wf
+    lower.i <- (coef(mod)[1] + coef(mod)[2]*x.wf) + ic.i.wf
+
+    png(paste("figure", i, ".png", sep = ""), width = 7, height = 7, units = "in", res = 300)
+    plot(merg$rep_out ~ merg$M_females, type = "p", xlab = " ", ylab = "Hatchling mass x clutch size (g)", cex.lab = 1.2, pch = 21, bg = c("purple", "skyblue")[as.numeric(merg$foraging.mode)], col = c("purple", "skyblue")[as.numeric(merg$foraging.mode)], las = 1)
+    polygon(c(rev(x.sw), x.sw), c(rev(lower.i.sw), upper.i.sw), border = FALSE, col = rgb(0, 0, 1, alpha = 0.2))
+    lines(x = x.sw, y = ((coef(mod)[1] + coef(mod)[3]) + (coef(mod)[2] + coef(mod)[4])*x.sw), col = "skyblue", lwd = 2)
+
+    polygon(c(rev(x.wf), x.wf), c(rev(lower.i), upper.i), border = FALSE, col = rgb(0.8, 0, 0.7, alpha = 0.3))
+    lines(x = x.wf, y = coef(mod)[1] + coef(mod)[2]*x.wf, col = "purple", lwd = 2)
+
+    text(x = 7.7, y = 30, substitute(paste(italic("Interaction \n "))), family = "serif")
+    text(x = 7.7, y = 30, round(coef(mod)[4], 3), family = "serif")
+    text(x = 7.7, y = 27, paste("p = ", round(anova(mod)[4, 3], 3), sep = " "), family = "serif")
+
+    mtext(expression(hat(M) (g)), side = 1, line = 4, cex = 1)
+    legend("topleft", legend = c("sit-and-wait foraging", "widely foraging"), lty = 1, bty = "n", pch = c(16, 16), bg = c("black", "black"), col = c("skyblue", "purple"), cex = 1)
+    
+    dev.off()
+    
+    
+    savep[i] <- round(anova(mod)[4, 3], 3)
+    savei[i] <- round(coef(mod)[4], 3)
+
+}
+    
+
+
+
+## Estimate proportion of time that the p-value of the interaction was significant
+
+mean(savep < 0.05)
+
+
+```
+
+```{r, echo = FALSE}
+
+print("0.574")
+
+```
+
+
+```{r, eval = FALSE}
+
+## Mean affect size of the interaction
+
+mean(savei)
+
+
+```
+
+```{r, echo = FALSE}
+
+
+print("-0.259")
+
+```
+
+
+```{r}
+
+## list file names and read in
+
+imgs <- list.files(path = "/Users/dpadil10/Dropbox (ASU)/gif/gif/", full.names = TRUE)
+img_list <- lapply(imgs, image_read)
+
+## join the images together
+img_joined <- image_join(img_list)
+
+## animate at 2 frames per second
+img_animated <- image_animate(img_joined, fps = 2)
+
+img_animated
+
+```
+
+
